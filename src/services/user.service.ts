@@ -186,22 +186,20 @@ export async function obtenerAccesosDeUsuario(idusuario: string) {
   let permisosActivos: any[] = [];
 
   if (roleIds.length > 0) {
-    const { data: permisosData, error: permisosError } = await supabaseAdmin
-      .from("rol_permiso")
-      .select(`
-        idrol,
-        estado,
-        permisos:permisos (
-          idpermiso,
-          codigo,
-          nombre,
-          modulo,
-          descripcion,
-          estado
-        )
-      `)
-      .in("idrol", roleIds)
-      .eq("estado", true);
+const { data: permisosData, error: permisosError } = await supabaseAdmin
+  .from("rol_permiso")
+  .select(`
+    idrol,
+    permisos:permisos (
+      idpermiso,
+      codigo,
+      nombre,
+      modulo,
+      descripcion,
+      estado
+    )
+  `)
+  .in("idrol", roleIds);
 
     if (permisosError) throw new Error(permisosError.message);
 
