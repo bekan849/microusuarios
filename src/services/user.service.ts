@@ -143,10 +143,16 @@ export async function obtenerAccesosDeUsuario(idusuario: string) {
 
   const usuario = await obtenerUsuario(idusuario);
 
+  if (usuario.estado !== "ACTIVO") {
+    throw new Error("Usuario no activo");
+  }
+
   const { data: rolesData, error: rolesError } = await supabaseAdmin
     .from("usuario_rol")
     .select(`
       idusuariorol,
+      idusuario,
+      idrol,
       estado,
       roles:roles (
         idrol,
@@ -160,11 +166,22 @@ export async function obtenerAccesosDeUsuario(idusuario: string) {
 
   if (rolesError) throw new Error(rolesError.message);
 
-  const rolesActivos = (rolesData ?? [])
-    .map((row: any) => row.roles)
-    .filter((rol: any) => rol && rol.estado === true);
+  const rolesMap = new Map<string, any>();
 
-  const roleIds = rolesActivos.map((rol: any) => rol.idrol);
+  for (const row of rolesData ?? []) {
+    const rol = (row as any).roles;
+
+    if (!rol || rol.estado !== true) continue;
+
+    rolesMap.set(rol.idrol, {
+      idrol: rol.idrol,
+      nombre: String(rol.nombre ?? "").trim(),
+      descripcion: rol.descripcion,
+    });
+  }
+
+  const rolesActivos = Array.from(rolesMap.values());
+  const roleIds = rolesActivos.map((rol) => rol.idrol);
 
   let permisosActivos: any[] = [];
 
@@ -173,6 +190,7 @@ export async function obtenerAccesosDeUsuario(idusuario: string) {
       .from("rol_permiso")
       .select(`
         idrol,
+        estado,
         permisos:permisos (
           idpermiso,
           codigo,
@@ -182,38 +200,34 @@ export async function obtenerAccesosDeUsuario(idusuario: string) {
           estado
         )
       `)
-      .in("idrol", roleIds);
+      .in("idrol", roleIds)
+      .eq("estado", true);
 
     if (permisosError) throw new Error(permisosError.message);
 
-    const mapa = new Map<string, any>();
+    const permisosMap = new Map<string, any>();
 
     for (const row of permisosData ?? []) {
       const permiso = (row as any).permisos;
+
       if (!permiso || permiso.estado !== true) continue;
 
-      if (!mapa.has(permiso.idpermiso)) {
-        mapa.set(permiso.idpermiso, permiso);
-      }
+      permisosMap.set(permiso.idpermiso, {
+        idpermiso: permiso.idpermiso,
+        codigo: String(permiso.codigo ?? "").trim().toLowerCase(),
+        nombre: permiso.nombre,
+        modulo: permiso.modulo,
+        descripcion: permiso.descripcion,
+      });
     }
 
-    permisosActivos = Array.from(mapa.values());
+    permisosActivos = Array.from(permisosMap.values());
   }
 
   return {
     usuario,
-    roles: rolesActivos.map((rol: any) => ({
-      idrol: rol.idrol,
-      nombre: rol.nombre,
-      descripcion: rol.descripcion,
-    })),
-    permisos: permisosActivos.map((permiso: any) => ({
-      idpermiso: permiso.idpermiso,
-      codigo: permiso.codigo,
-      nombre: permiso.nombre,
-      modulo: permiso.modulo,
-      descripcion: permiso.descripcion,
-    })),
+    roles: rolesActivos,
+    permisos: permisosActivos,
   };
 }
 

@@ -57,6 +57,8 @@ export async function listarRolesDeUsuario(idusuario: string) {
     .from("usuario_rol")
     .select(`
       idusuariorol,
+      idusuario,
+      idrol,
       estado,
       asignado_en,
       roles:roles (
@@ -83,6 +85,8 @@ export async function listarUsuariosDeRol(idrol: string) {
     .from("usuario_rol")
     .select(`
       idusuariorol,
+      idusuario,
+      idrol,
       estado,
       asignado_en,
       usuarios:usuarios (
