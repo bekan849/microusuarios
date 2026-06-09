@@ -43,7 +43,7 @@ export async function getAuthMe(req: ReqWithUser, res: Response) {
     return res.json({
       ok: true,
       data: {
-        ...req.user,
+        usuario: accesosActualizados.usuario,
         roles: accesosActualizados.roles,
         permisos: accesosActualizados.permisos,
       },

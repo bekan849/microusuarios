@@ -108,7 +108,9 @@ export async function crearUsuario(payload: UsuarioCreate) {
     });
 
   if (authError || !authCreated.user) {
-    throw new Error(authError?.message || "No se pudo crear el usuario en Auth");
+    throw new Error(
+      authError?.message || "No se pudo crear el usuario en Auth"
+    );
   }
 
   const uid = authCreated.user.id;
@@ -135,8 +137,6 @@ export async function crearUsuario(payload: UsuarioCreate) {
 
   return data;
 }
-
-
 
 export async function obtenerAccesosDeUsuario(idusuario: string) {
   if (!idusuario) throw new Error("Falta idusuario");
@@ -176,30 +176,31 @@ export async function obtenerAccesosDeUsuario(idusuario: string) {
     rolesMap.set(rol.idrol, {
       idrol: rol.idrol,
       nombre: String(rol.nombre ?? "").trim(),
-      descripcion: rol.descripcion,
+      descripcion: rol.descripcion ?? null,
     });
   }
 
   const rolesActivos = Array.from(rolesMap.values());
-  const roleIds = rolesActivos.map((rol) => rol.idrol);
+  const roleIds = rolesActivos.map((rol) => rol.idrol).filter(Boolean);
 
   let permisosActivos: any[] = [];
 
   if (roleIds.length > 0) {
-const { data: permisosData, error: permisosError } = await supabaseAdmin
-  .from("rol_permiso")
-  .select(`
-    idrol,
-    permisos:permisos (
-      idpermiso,
-      codigo,
-      nombre,
-      modulo,
-      descripcion,
-      estado
-    )
-  `)
-  .in("idrol", roleIds);
+    const { data: permisosData, error: permisosError } = await supabaseAdmin
+      .from("rol_permiso")
+      .select(`
+        idrol,
+        idpermiso,
+        permisos:permisos (
+          idpermiso,
+          codigo,
+          nombre,
+          modulo,
+          descripcion,
+          estado
+        )
+      `)
+      .in("idrol", roleIds);
 
     if (permisosError) throw new Error(permisosError.message);
 
@@ -215,7 +216,7 @@ const { data: permisosData, error: permisosError } = await supabaseAdmin
         codigo: String(permiso.codigo ?? "").trim().toLowerCase(),
         nombre: permiso.nombre,
         modulo: permiso.modulo,
-        descripcion: permiso.descripcion,
+        descripcion: permiso.descripcion ?? null,
       });
     }
 
@@ -229,17 +230,29 @@ const { data: permisosData, error: permisosError } = await supabaseAdmin
   };
 }
 
-
-
-export async function actualizarUsuario(idusuario: string, payload: UsuarioUpdate) {
+export async function actualizarUsuario(
+  idusuario: string,
+  payload: UsuarioUpdate
+) {
   const actual = await obtenerUsuario(idusuario);
 
   const update: any = {};
 
-  if (payload.nombre !== undefined) update.nombre = normalizeNombre(payload.nombre);
-  if (payload.apellido !== undefined) update.apellido = normalizeNombre(payload.apellido);
-  if (payload.telefono !== undefined) update.telefono = normalizeText(payload.telefono);
-  if (payload.direccion !== undefined) update.direccion = normalizeText(payload.direccion);
+  if (payload.nombre !== undefined) {
+    update.nombre = normalizeNombre(payload.nombre);
+  }
+
+  if (payload.apellido !== undefined) {
+    update.apellido = normalizeNombre(payload.apellido);
+  }
+
+  if (payload.telefono !== undefined) {
+    update.telefono = normalizeText(payload.telefono);
+  }
+
+  if (payload.direccion !== undefined) {
+    update.direccion = normalizeText(payload.direccion);
+  }
 
   if (payload.email !== undefined) {
     const newEmail = normalizeEmail(payload.email);
@@ -250,13 +263,15 @@ export async function actualizarUsuario(idusuario: string, payload: UsuarioUpdat
         throw new Error("El usuario no tiene uidauth para sincronizar email");
       }
 
-      const { error: authError } = await supabaseAdmin.auth.admin.updateUserById(
-        actual.uidauth,
-        { email: newEmail }
-      );
+      const { error: authError } =
+        await supabaseAdmin.auth.admin.updateUserById(actual.uidauth, {
+          email: newEmail,
+        });
 
       if (authError) {
-        throw new Error(`No se pudo actualizar el email en Auth: ${authError.message}`);
+        throw new Error(
+          `No se pudo actualizar el email en Auth: ${authError.message}`
+        );
       }
     }
   }
@@ -297,9 +312,14 @@ export async function eliminarUsuario(idusuario: string) {
   const actual = await obtenerUsuario(idusuario);
 
   if (actual.uidauth) {
-    const { error: authError } = await supabaseAdmin.auth.admin.deleteUser(actual.uidauth);
+    const { error: authError } = await supabaseAdmin.auth.admin.deleteUser(
+      actual.uidauth
+    );
+
     if (authError) {
-      throw new Error(`No se pudo eliminar el usuario de Auth: ${authError.message}`);
+      throw new Error(
+        `No se pudo eliminar el usuario de Auth: ${authError.message}`
+      );
     }
   }
 
@@ -313,7 +333,10 @@ export async function eliminarUsuario(idusuario: string) {
   return { ok: true };
 }
 
-export async function cambiarPasswordUsuario(idusuario: string, password: string) {
+export async function cambiarPasswordUsuario(
+  idusuario: string,
+  password: string
+) {
   const actual = await obtenerUsuario(idusuario);
 
   const newPassword = String(password ?? "").trim();
