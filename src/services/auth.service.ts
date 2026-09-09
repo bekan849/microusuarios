@@ -1,7 +1,8 @@
 import jwt from "jsonwebtoken";
 import { supabaseAdmin, supabaseAuth } from "../lib/supabase";
 import { env } from "../config/env";
-import { obtenerAccesosDeUsuario } from "./user.service";
+import { obtenerAccesosCompatibles, type AccesosUsuario } from "./user.service";
+import { faltaFuncionRpc } from "../utils/rpc";
 
 export type LoginPayload = {
   email: string;
@@ -21,8 +22,8 @@ function normalizeEmail(email: string) {
 }
 
 export async function loginUsuario(payload: LoginPayload) {
-  const email = normalizeEmail(payload.email);
-  const password = String(payload.password ?? "");
+  const email = normalizeEmail(payload?.email);
+  const password = String(payload?.password ?? "");
 
   if (!email) throw new Error("email es obligatorio");
   if (!password) throw new Error("password es obligatorio");
@@ -38,6 +39,17 @@ export async function loginUsuario(payload: LoginPayload) {
   }
 
   const uidAuth = authData.user.id;
+
+  const { data: sesion, error: sesionError } = await supabaseAdmin.rpc(
+    "iniciar_sesion_usuario", { p_uidauth: uidAuth, p_email: email }
+  );
+  if (!sesionError) {
+    if (!sesion?.usuario || !Array.isArray(sesion.roles) || !Array.isArray(sesion.permisos)) {
+      throw new Error("Respuesta de sesión inválida");
+    }
+    return crearRespuestaLogin(sesion as AccesosUsuario);
+  }
+  if (!faltaFuncionRpc(sesionError)) throw new Error(sesionError.message);
 
   let usuario: any = null;
 
@@ -64,6 +76,10 @@ export async function loginUsuario(payload: LoginPayload) {
 
     usuario = byEmail;
 
+    if (usuario.uidauth && usuario.uidauth !== uidAuth) {
+      throw new Error("La cuenta de autenticación no coincide con el usuario");
+    }
+
     if (!usuario.uidauth) {
       const { data: updatedUser, error: updateUidError } = await supabaseAdmin
         .from("usuarios")
@@ -84,14 +100,24 @@ export async function loginUsuario(payload: LoginPayload) {
     throw new Error("El usuario no está activo");
   }
 
-  const accesos = await obtenerAccesosDeUsuario(usuario.idusuario);
+  const accesos = await obtenerAccesosCompatibles(usuario.idusuario, usuario);
+  const ultimoAcceso = new Date().toISOString();
+  const { error: accesoError } = await supabaseAdmin.from("usuarios")
+    .update({ ultimo_acceso: ultimoAcceso }).eq("idusuario", usuario.idusuario);
+  if (accesoError) throw new Error(accesoError.message);
+  accesos.usuario.ultimo_acceso = ultimoAcceso;
+  return crearRespuestaLogin(accesos);
+}
+
+function crearRespuestaLogin(accesos: AccesosUsuario) {
+  const usuario = accesos.usuario;
 
   const roles = accesos.roles.map((r) => r.nombre);
   const permisos = accesos.permisos.map((p) => p.codigo);
 
   const tokenPayload: JwtPayload = {
     idusuario: usuario.idusuario,
-    uidauth: usuario.uidauth ?? uidAuth,
+    uidauth: usuario.uidauth,
     email: usuario.email,
     roles,
     permisos,
@@ -101,16 +127,11 @@ export async function loginUsuario(payload: LoginPayload) {
     expiresIn: env.JWT_EXPIRES_IN as jwt.SignOptions["expiresIn"],
   });
 
-  await supabaseAdmin
-    .from("usuarios")
-    .update({ ultimo_acceso: new Date().toISOString() })
-    .eq("idusuario", usuario.idusuario);
-
   return {
     token,
     usuario: {
       idusuario: usuario.idusuario,
-      uidauth: usuario.uidauth ?? uidAuth,
+      uidauth: usuario.uidauth,
       nombre: usuario.nombre,
       apellido: usuario.apellido,
       email: usuario.email,

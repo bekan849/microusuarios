@@ -1,4 +1,5 @@
 import { supabaseAdmin } from "../lib/supabase";
+import { faltaFuncionRpc } from "../utils/rpc";
 
 export type UsuarioCreate = {
   uidauth?: string;
@@ -141,7 +142,34 @@ export async function crearUsuario(payload: UsuarioCreate) {
 export async function obtenerAccesosDeUsuario(idusuario: string) {
   if (!idusuario) throw new Error("Falta idusuario");
 
-  const usuario = await obtenerUsuario(idusuario);
+  const { data, error } = await supabaseAdmin.rpc("obtener_accesos_usuario", {
+    p_idusuario: idusuario,
+  });
+  if (!error) {
+    if (!data?.usuario || !Array.isArray(data.roles) || !Array.isArray(data.permisos)) {
+      throw new Error("Respuesta de sesión inválida");
+    }
+    return data as AccesosUsuario;
+  }
+  if (!faltaFuncionRpc(error)) throw new Error(error.message);
+  return obtenerAccesosCompatibles(idusuario);
+}
+
+export type AccesosUsuario = {
+  usuario: any;
+  roles: Array<{ idrol: string; nombre: string; descripcion: string | null }>;
+  permisos: Array<{
+    idpermiso: string; codigo: string; nombre: string;
+    modulo: string; descripcion: string | null;
+  }>;
+};
+
+/** Compatibilidad temporal mientras se instala la migración de sesión. */
+export async function obtenerAccesosCompatibles(
+  idusuario: string,
+  usuarioExistente?: any
+): Promise<AccesosUsuario> {
+  const usuario = usuarioExistente ?? await obtenerUsuario(idusuario);
 
   if (usuario.estado !== "ACTIVO") {
     throw new Error("Usuario no activo");

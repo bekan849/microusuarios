@@ -21,15 +21,16 @@ export const app = express();
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-const allowedOrigins = [
+const allowedOrigins = new Set([
   "http://localhost:5173",
   "https://sis-stockf.onrender.com",
-];
+  ...env.CORS_ORIGIN.split(",").map((origin) => origin.trim()).filter((origin) => origin && origin !== "*"),
+]);
 
 app.use(
   cors({
     origin(origin, callback) {
-      if (!origin || allowedOrigins.includes(origin)) {
+      if (!origin || allowedOrigins.has(origin)) {
         callback(null, true);
         return;
       }
@@ -37,11 +38,12 @@ app.use(
       callback(new Error("No permitido por CORS"));
     },
     credentials: true,
+    maxAge: 600,
   })
 );
 
 app.use(helmet());
-app.use(morgan("dev"));
+if (env.NODE_ENV !== "production") app.use(morgan("dev"));
 
 /* rutas públicas */
 app.use("/api/health", healthRouter);
