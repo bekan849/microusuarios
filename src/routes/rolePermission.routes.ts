@@ -1,3 +1,4 @@
+import { auditMiddleware } from "../middlewares/audit.middleware";
 import { Router } from "express";
 import {
   getPermisosDeRol,
@@ -35,6 +36,7 @@ rolePermissionRouter.post(
   decodeToken,
   requireAuth,
   requirePermission("roles.editar"),
+  auditMiddleware("usuarios"),
   postRolPermiso
 );
 
@@ -43,5 +45,6 @@ rolePermissionRouter.delete(
   decodeToken,
   requireAuth,
   requirePermission("roles.editar"),
+  auditMiddleware("usuarios"),
   deleteRolPermiso
 );

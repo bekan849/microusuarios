@@ -1,3 +1,4 @@
+import { auditMiddleware } from "../middlewares/audit.middleware";
 import { Router } from "express";
 import {
   getRolesDeUsuario,
@@ -36,6 +37,7 @@ userRoleRouter.post(
   decodeToken,
   requireAuth,
   requirePermission("usuarios.editar"),
+  auditMiddleware("usuarios"),
   postUsuarioRol
 );
 
@@ -44,6 +46,7 @@ userRoleRouter.patch(
   decodeToken,
   requireAuth,
   requirePermission("usuarios.editar"),
+  auditMiddleware("usuarios"),
   patchUsuarioRolEstado
 );
 
@@ -52,5 +55,6 @@ userRoleRouter.delete(
   decodeToken,
   requireAuth,
   requirePermission("usuarios.editar"),
+  auditMiddleware("usuarios"),
   deleteUsuarioRol
 );

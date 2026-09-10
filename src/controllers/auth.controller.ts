@@ -14,6 +14,7 @@ type ReqWithUser = Request & {
 export async function postLogin(req: Request, res: Response) {
   try {
     const data = await loginUsuario(req.body);
+    res.locals.auditActor = data.usuario;
 
     return res.json({
       ok: true,

@@ -1,3 +1,4 @@
+import { auditRouter } from "./routes/audit.routes";
 import express from "express";
 import cors from "cors";
 import helmet from "helmet";
@@ -39,6 +40,7 @@ app.use(
     },
     credentials: true,
     maxAge: 600,
+    exposedHeaders: ["X-Audit-Status"],
   })
 );
 
@@ -57,5 +59,6 @@ app.use("/api/rol-permiso", rolePermissionRouter);
 app.use("/api/usuario-rol", userRoleRouter);
 
 /* middlewares */
+app.use("/api/historial", auditRouter);
 app.use(notFound);
 app.use(errorMiddleware);

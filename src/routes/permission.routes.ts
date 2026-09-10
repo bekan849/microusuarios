@@ -1,3 +1,4 @@
+import { auditMiddleware } from "../middlewares/audit.middleware";
 import { Router } from "express";
 import {
   getPermisos,
@@ -38,6 +39,7 @@ permissionRouter.post(
   decodeToken,
   requireAuth,
   requirePermission("permisos.crear"),
+  auditMiddleware("usuarios"),
   postPermiso
 );
 
@@ -46,6 +48,7 @@ permissionRouter.put(
   decodeToken,
   requireAuth,
   requirePermission("permisos.editar"),
+  auditMiddleware("usuarios"),
   putPermiso
 );
 
@@ -54,6 +57,7 @@ permissionRouter.patch(
   decodeToken,
   requireAuth,
   requirePermission("permisos.editar"),
+  auditMiddleware("usuarios"),
   patchPermisoEstado
 );
 
@@ -62,5 +66,6 @@ permissionRouter.delete(
   decodeToken,
   requireAuth,
   requireRole("ADMINISTRADOR"),
+  auditMiddleware("usuarios"),
   deletePermiso
 );
