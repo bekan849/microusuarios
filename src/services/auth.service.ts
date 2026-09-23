@@ -10,6 +10,8 @@ export type LoginPayload = {
 };
 
 type JwtPayload = {
+  nombre?: string;
+  apellido?: string;
   idusuario: string;
   uidauth?: string | null;
   email: string;
@@ -116,6 +118,8 @@ function crearRespuestaLogin(accesos: AccesosUsuario) {
   const permisos = accesos.permisos.map((p) => p.codigo);
 
   const tokenPayload: JwtPayload = {
+    nombre: usuario.nombre,
+    apellido: usuario.apellido,
     idusuario: usuario.idusuario,
     uidauth: usuario.uidauth,
     email: usuario.email,

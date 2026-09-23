@@ -9,10 +9,10 @@ const {supabaseAdmin}=require('../src/lib/supabase.ts');
 const {auditValues,auditFilters}=require('../src/services/audit.service.ts');
 const {auditMiddleware}=require('../src/middlewares/audit.middleware.ts');
 const express=require('express');
-let events=[], snapshot=0, fail=false;
+let events=[], snapshot=0, fail=false, deleted=false;
 supabaseAdmin.from=table=>({
   insert: event=>({abortSignal:async()=>{if(!fail)events.push(event);return {error:fail?{message:'test'}:null};}}),
-  select:()=>{const q={eq:()=>q,abortSignal:()=>q,maybeSingle:async()=>({data:{idproducto:'product',precioventa:++snapshot===1?10:12,password:'secret'},error:null})};return q;}
+  select:()=>{const q={eq:()=>q,abortSignal:()=>q,maybeSingle:async()=>({data:deleted?null:table==='marcas'?{idmarca:'brand',nombre:++snapshot===1?'Marca anterior':'Marca nueva'}:{idproducto:'product',precioventa:++snapshot===1?10:12,password:'secret'},error:null})};return q;}
 });
 test('Audit sanitization excludes credentials at every supported depth',()=>{
   const result=auditValues({password:'secret',token:'secret',uidauth:'secret',email:'a@b.invalid',items:[{cantidad:2,password:'secret',access_token:'secret'}],usuario:{nombre:'Ana',password:'secret'}});
@@ -27,9 +27,10 @@ test('Filters reject invalid pages/dates and reversed ranges',()=>{
 });
 test('Authenticated action audit integration',async t=>{
   const app=express();app.use(express.json());
-  const actor=(req,res,next)=>{req.user={idusuario:'trusted',email:'real@example.invalid'};next();};
+  const actor=(req,res,next)=>{req.user={idusuario:'trusted',email:'real@example.invalid',nombre:'Ana',apellido:'Prueba'};next();};
   app.put('/api/productos/:id',actor,auditMiddleware('productos'),(req,res)=>res.json({ok:true,data:{idproducto:req.params.id,precioventa:12}}));
-  app.delete('/api/productos/:id',actor,auditMiddleware('productos'),(req,res)=>res.json({ok:true}));
+  app.delete('/api/productos/:id',actor,auditMiddleware('productos'),(req,res)=>{deleted=Boolean(req.body.hard);return res.json({ok:true,data:{idproducto:'product',precioventa:12}});});
+  app.put('/api/marcas/:id',actor,auditMiddleware('productos'),(req,res)=>res.json({ok:true,data:{idmarca:req.params.id,nombre:'Marca nueva'}}));
   app.post('/api/ventas/registrar-completa',actor,auditMiddleware('productos'),(req,res)=>res.status(400).json({ok:false,message:'secret-error'}));
   app.post('/api/auth/login',auditMiddleware('usuarios'),(req,res)=>{
     if(req.body.fail)return res.status(400).json({ok:false});
@@ -47,10 +48,19 @@ test('Authenticated action audit integration',async t=>{
       assert.equal(r.status,200);assert.equal(events.length,1);assert.equal(events[0].actor_id,'trusted');
       assert.equal(events[0].antes.precioventa,10);assert.equal(events[0].despues.precioventa,12);
       assert.equal(events[0].registro_id,'product');assert.equal(JSON.stringify(events).includes('secret'),false);
+      assert.equal(events[0].detalles.actor_nombre,'Ana Prueba');
     });
-    await t.test('Deletion preserves the old value and no invented new value',async()=>{
+    await t.test('Soft deletion preserves the actual remaining record',async()=>{
       events=[];await request('/api/productos/product','DELETE');
-      assert.ok(events[0].antes);assert.equal(events[0].despues,null);assert.equal(events[0].accion,'eliminar');
+      assert.ok(events[0].antes);assert.ok(events[0].despues);assert.equal(events[0].detalles.registro_eliminado,false);
+    });
+    await t.test('Physical deletion does not reuse the deleted row returned by a controller',async()=>{
+      events=[];await request('/api/productos/product','DELETE',{hard:true});
+      assert.ok(events[0].antes);assert.equal(events[0].despues,null);assert.equal(events[0].detalles.registro_eliminado,true);deleted=false;
+    });
+    await t.test('Brand updates capture both persisted names',async()=>{
+      events=[];snapshot=0;await request('/api/marcas/brand','PUT',{nombre:'Marca nueva'});
+      assert.equal(events[0].antes.nombre,'Marca anterior');assert.equal(events[0].despues.nombre,'Marca nueva');
     });
     await t.test('Failed operation never records a successful change or raw error',async()=>{
       events=[];await request('/api/ventas/registrar-completa','POST',{password:'secret'});
@@ -84,6 +94,8 @@ test('History endpoint enforces current permissions and read-only API',async t=>
   try{
     assert.equal((await fetch(base)).status,401);
     assert.equal((await fetch(base,{headers:{Authorization:'Bearer '+token('revoked')}})).status,403);
+    assert.equal((await fetch(base+'/responsables?ids=trusted',{headers:{Authorization:'Bearer '+token('revoked')}})).status,403);
+    assert.equal((await fetch(base+'/responsables?ids='+Array(26).fill('id').join(','),{headers:{Authorization:'Bearer '+token('allowed')}})).status,400);
     assert.equal((await fetch(base+'?page=abc',{headers:{Authorization:'Bearer '+token('allowed')}})).status,400);
     assert.equal((await fetch(base,{method:'DELETE',headers:{Authorization:'Bearer '+token('allowed')}})).status,404);
   }finally{server.closeAllConnections();await new Promise(r=>server.close(r));}
@@ -116,4 +128,15 @@ test('Every existing mutation route in both services has auditing',()=>{
       for(const match of source.matchAll(/\w+Router\.(post|put|patch|delete)\([\s\S]*?\);/g))assert.match(match[0],/auditMiddleware\(/,file+' is missing auditing');
     }
   }
+});
+
+test('Responsible lookup returns only ID and full name and bounds the batch',async()=>{
+  const previous=supabaseAdmin.from;let selected,ids;
+  supabaseAdmin.from=table=>({select:columns=>{assert.equal(table,'usuarios');selected=columns;return {in:(column,values)=>{assert.equal(column,'idusuario');ids=values;return {abortSignal:async()=>({data:[{idusuario:'trusted',nombre:'Ana',apellido:'Prueba',password:'never-return'}],error:null})};}};}});
+  try{
+    const {auditResponsibleNames}=require('../src/services/audit.service.ts');
+    assert.deepEqual(await auditResponsibleNames(['trusted','trusted']),[{idusuario:'trusted',nombre:'Ana Prueba'}]);
+    assert.equal(selected,'idusuario,nombre,apellido');assert.deepEqual(ids,['trusted']);
+    await assert.rejects(()=>auditResponsibleNames(Array(26).fill('id')),/inválidos/);
+  }finally{supabaseAdmin.from=previous;}
 });

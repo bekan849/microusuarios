@@ -18,6 +18,16 @@ Archivos SQL, rutas completas:
 
 ## Cómo usarlo
 
+### Actualización de comparaciones y nombres (23 de septiembre)
+
+Desplegar usuarios, productos y frontend; no necesita una migración SQL adicional si la tabla del historial ya está instalada. Cerrar sesión y volver a entrar después del despliegue para que el token de productos incluya nombre y apellido verificados.
+
+El detalle muestra ambos valores guardados, incluidos los campos que quedaron iguales. Las eliminaciones lógicas guardan el estado posterior; las físicas se identifican como registro eliminado. Los inicios y cierres de sesión muestran el resultado del acceso, con el valor anterior indicado como no aplicable: no se inventa un estado previo de la sesión.
+
+Los nuevos eventos guardan el nombre del responsable en `detalles.actor_nombre`, sin cambiar la estructura de la tabla. En usuarios se intenta consultar el perfil actual al ejecutar la acción; productos utiliza el nombre del token firmado, que corresponde al inicio de esa sesión. Para eventos anteriores sin nombre, el frontend consulta por lotes el endpoint protegido de usuarios `/api/historial/responsables`, y muestra el resultado como **Nombre actual del usuario**. Si el usuario fue eliminado o no se puede consultar, muestra **Nombre no disponible** y conserva el ID. La consulta no modifica los eventos históricos.
+
+Los valores anteriores y posteriores que nunca se guardaron no se pueden reconstruir con certeza. La pantalla lo indica explícitamente. Las capturas siguen siendo lecturas separadas de la operación de negocio, con los límites de concurrencia descritos abajo.
+
 Abre **Historial de acciones**. El selector **Área** permite consultar inventario/compras/ventas o usuarios/sesiones, incluso cuando los microservicios tienen bases diferentes. Selecciona los filtros y pulsa **Filtrar**. Puedes buscar por correo del responsable, acción, módulo, fechas y resultado. Se muestran 25 registros por página, ordenados del más reciente al más antiguo. Las fechas utilizan horario de Bolivia.
 
 Abre una fila para ver el registro afectado, el usuario y los valores anteriores y posteriores disponibles. **Actualizar** vuelve a consultar; la pantalla no se actualiza automáticamente. No hay botones ni API para editar o borrar el historial.

@@ -3,6 +3,8 @@ import jwt from "jsonwebtoken";
 import { env } from "../config/env";
 
 type TokenPayload = {
+  nombre?: string;
+  apellido?: string;
   idusuario: string;
   uidauth?: string;
   email?: string;
@@ -12,6 +14,8 @@ type TokenPayload = {
 
 type AuthenticatedRequest = Request & {
   user?: {
+    nombre?: string;
+    apellido?: string;
     idusuario: string;
     email?: string;
     roles?: string[];
@@ -46,6 +50,8 @@ export const decodeToken: RequestHandler = (
     const decoded = jwt.verify(token, env.JWT_SECRET) as TokenPayload;
 
     (req as AuthenticatedRequest).user = {
+      nombre: typeof decoded.nombre === "string" ? decoded.nombre : undefined,
+      apellido: typeof decoded.apellido === "string" ? decoded.apellido : undefined,
       idusuario: decoded.idusuario,
       email: decoded.email,
       roles: decoded.roles ?? [],
