@@ -1,5 +1,5 @@
 const {test}=require('node:test');const assert=require('node:assert/strict');const fs=require('node:fs');const path=require('node:path');
-const {PGlite}=require(process.env.PGLITE_MODULE||'@electric-sql/pglite');
+const {PGlite}=require('@electric-sql/pglite');
 test('History SQL permissions, immutability and repeatable installation',async()=>{
   const db=new PGlite();
   try{

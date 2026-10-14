@@ -1,3 +1,4 @@
+import { empresaContext } from '../lib/empresa-context';
 import type { Request, Response } from "express";
 import { loginUsuario } from "../services/auth.service";
 import { obtenerAccesosDeUsuario } from "../services/user.service";
@@ -16,10 +17,9 @@ export async function postLogin(req: Request, res: Response) {
     const data = await loginUsuario(req.body);
     res.locals.auditActor = data.usuario;
 
-    return res.json({
-      ok: true,
-      data,
-    });
+    const reply = () => res.json({ ok: true, data });
+    return data.empresa ? empresaContext.run({ idempresa:data.empresa.idempresa,
+      idusuario:data.usuario.idusuario,permisos:data.permisos.map(p=>p.codigo) },reply) : reply();
   } catch (err: any) {
     return res.status(400).json({
       ok: false,
@@ -47,6 +47,7 @@ export async function getAuthMe(req: ReqWithUser, res: Response) {
         usuario: accesosActualizados.usuario,
         roles: accesosActualizados.roles,
         permisos: accesosActualizados.permisos,
+        empresa: accesosActualizados.empresa,
       },
     });
   } catch (err: any) {

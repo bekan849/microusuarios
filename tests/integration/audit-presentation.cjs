@@ -1,6 +1,14 @@
 const {test}=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs'),ts=require('typescript');
 require.extensions['.ts']=(mod,file)=>mod._compile(ts.transpileModule(fs.readFileSync(file,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2020}}).outputText,file);
-const {auditComparison}=require('C:/Users/Usuario/Downloads/SIS-STOCKF/SIS-STOCKF/src/utils/audit-presentation.ts');
+const path=require('node:path');
+if (!process.env.FRONTEND_ROOT) {
+  throw new Error('La prueba de presentación requiere el frontend. Define FRONTEND_ROOT con la carpeta de su repositorio; consulta tests/README.md. Para probar solo microusuarios, ejecuta npm test.');
+}
+const presentationPath=path.resolve(process.env.FRONTEND_ROOT,'src/utils/audit-presentation.ts');
+if (!fs.existsSync(presentationPath)) {
+  throw new Error('FRONTEND_ROOT debe contener src/utils/audit-presentation.ts.');
+}
+const {auditComparison}=require(presentationPath);
 const base={accion:'editar',recurso:'marcas',resultado:'exito',antes:null,despues:null,detalles:{}};
 test('Brand comparison includes changed and unchanged recorded fields',()=>{
   const r=auditComparison({...base,antes:{nombre:'A',estado:true},despues:{nombre:'B',estado:true}});

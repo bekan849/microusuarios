@@ -1,156 +1,47 @@
-import jwt from "jsonwebtoken";
-import { supabaseAdmin, supabaseAuth } from "../lib/supabase";
-import { env } from "../config/env";
-import { obtenerAccesosCompatibles, type AccesosUsuario } from "./user.service";
-import { faltaFuncionRpc } from "../utils/rpc";
+import jwt from 'jsonwebtoken';
+import { supabaseSystem, supabaseAuth } from '../lib/supabase';
+import { env } from '../config/env';
+import type { AccesosUsuario } from './user.service';
+import { listarEmpresas, obtenerAccesosEmpresa, type Empresa } from './empresa.service';
 
-export type LoginPayload = {
-  email: string;
-  password: string;
-};
-
-type JwtPayload = {
-  nombre?: string;
-  apellido?: string;
-  idusuario: string;
-  uidauth?: string | null;
-  email: string;
-  roles: string[];
-  permisos: string[];
-};
-
-function normalizeEmail(email: string) {
-  return String(email ?? "").trim().toLowerCase();
-}
-
+export type LoginPayload = { email: string; password: string };
 export async function loginUsuario(payload: LoginPayload) {
-  const email = normalizeEmail(payload?.email);
-  const password = String(payload?.password ?? "");
-
-  if (!email) throw new Error("email es obligatorio");
-  if (!password) throw new Error("password es obligatorio");
-
-  const { data: authData, error: authError } =
-    await supabaseAuth.auth.signInWithPassword({
-      email,
-      password,
-    });
-
-  if (authError || !authData.user) {
-    throw new Error("Credenciales inválidas");
-  }
-
-  const uidAuth = authData.user.id;
-
-  const { data: sesion, error: sesionError } = await supabaseAdmin.rpc(
-    "iniciar_sesion_usuario", { p_uidauth: uidAuth, p_email: email }
-  );
-  if (!sesionError) {
-    if (!sesion?.usuario || !Array.isArray(sesion.roles) || !Array.isArray(sesion.permisos)) {
-      throw new Error("Respuesta de sesión inválida");
-    }
-    return crearRespuestaLogin(sesion as AccesosUsuario);
-  }
-  if (!faltaFuncionRpc(sesionError)) throw new Error(sesionError.message);
-
-  let usuario: any = null;
-
-  const { data: byUid, error: byUidError } = await supabaseAdmin
-    .from("usuarios")
-    .select("*")
-    .eq("uidauth", uidAuth)
-    .single();
-
-  if (!byUidError && byUid) {
-    usuario = byUid;
-  } else {
-    const { data: byEmail, error: byEmailError } = await supabaseAdmin
-      .from("usuarios")
-      .select("*")
-      .eq("email", email)
-      .single();
-
-    if (byEmailError || !byEmail) {
-      throw new Error(
-        "El usuario autenticado no existe en la tabla usuarios"
-      );
-    }
-
-    usuario = byEmail;
-
-    if (usuario.uidauth && usuario.uidauth !== uidAuth) {
-      throw new Error("La cuenta de autenticación no coincide con el usuario");
-    }
-
-    if (!usuario.uidauth) {
-      const { data: updatedUser, error: updateUidError } = await supabaseAdmin
-        .from("usuarios")
-        .update({ uidauth: uidAuth })
-        .eq("idusuario", usuario.idusuario)
-        .select("*")
-        .single();
-
-      if (updateUidError || !updatedUser) {
-        throw new Error("No se pudo sincronizar el UID del usuario");
-      }
-
-      usuario = updatedUser;
-    }
-  }
-
-  if (usuario.estado !== "ACTIVO") {
-    throw new Error("El usuario no está activo");
-  }
-
-  const accesos = await obtenerAccesosCompatibles(usuario.idusuario, usuario);
-  const ultimoAcceso = new Date().toISOString();
-  const { error: accesoError } = await supabaseAdmin.from("usuarios")
-    .update({ ultimo_acceso: ultimoAcceso }).eq("idusuario", usuario.idusuario);
-  if (accesoError) throw new Error(accesoError.message);
-  accesos.usuario.ultimo_acceso = ultimoAcceso;
-  return crearRespuestaLogin(accesos);
+  const email = String(payload?.email ?? '').trim().toLowerCase();
+  const password = String(payload?.password ?? '');
+  if (!email || !password) throw new Error('Correo y contraseña son obligatorios');
+  const { data, error } = await supabaseAuth.auth.signInWithPassword({ email, password });
+  if (error || !data.user) throw new Error('Credenciales inválidas');
+  const { data: sesion, error: sessionError } = await supabaseSystem.rpc('iniciar_sesion_multiempresa', {
+    p_uidauth: data.user.id, p_email: email,
+  });
+  if (sessionError) throw new Error(sessionError.message);
+  if (!sesion?.usuario || !Array.isArray(sesion.empresas) || !sesion.empresas.length)
+    throw new Error('No tienes empresas habilitadas');
+  if (sesion.empresas.length === 1) return seleccionarEmpresa(sesion.usuario.idusuario, sesion.empresas[0].idempresa);
+  return crearRespuestaLogin({ usuario: sesion.usuario, roles: [], permisos: [] }, sesion.empresas);
 }
 
-function crearRespuestaLogin(accesos: AccesosUsuario) {
-  const usuario = accesos.usuario;
+export async function seleccionarEmpresa(idusuario: string, idempresa: string) {
+  const accesos = await obtenerAccesosEmpresa(idusuario, idempresa);
+  const empresas = await listarEmpresas(idusuario);
+  return crearRespuestaLogin(accesos, empresas, accesos.empresa);
+}
 
-  const roles = accesos.roles.map((r) => r.nombre);
-  const permisos = accesos.permisos.map((p) => p.codigo);
-
-  const tokenPayload: JwtPayload = {
-    nombre: usuario.nombre,
-    apellido: usuario.apellido,
-    idusuario: usuario.idusuario,
-    uidauth: usuario.uidauth,
-    email: usuario.email,
-    roles,
-    permisos,
-  };
-
-  const token = jwt.sign(tokenPayload, env.JWT_SECRET, {
-    expiresIn: env.JWT_EXPIRES_IN as jwt.SignOptions["expiresIn"],
-  });
-
-  return {
-    token,
-    usuario: {
-      idusuario: usuario.idusuario,
-      uidauth: usuario.uidauth,
-      nombre: usuario.nombre,
-      apellido: usuario.apellido,
-      email: usuario.email,
-      telefono: usuario.telefono,
-      direccion: usuario.direccion,
-      estado: usuario.estado,
-      ultimo_acceso: usuario.ultimo_acceso,
-      creado_en: usuario.creado_en,
-      actualizado_en: usuario.actualizado_en,
-    },
-    roles: accesos.roles,
-    permisos: accesos.permisos,
-  };
+function crearRespuestaLogin(accesos: AccesosUsuario, empresas: Empresa[], empresa?: Empresa) {
+  const u = accesos.usuario;
+  const tipo = empresa ? 'empresa' : 'seleccion_empresa';
+  const token = jwt.sign({
+    version: 2, tipo, idempresa: empresa?.idempresa, idusuario: u.idusuario,
+    nombre: u.nombre, apellido: u.apellido, email: u.email,
+    // Los permisos vigentes se consultan en servidor en cada petición.
+  }, env.JWT_SECRET, { algorithm: 'HS256', expiresIn: tipo === 'seleccion_empresa' ? '10m' : env.JWT_EXPIRES_IN as jwt.SignOptions['expiresIn'] });
+  return { token, usuario: {
+    idusuario:u.idusuario,uidauth:u.uidauth,nombre:u.nombre,apellido:u.apellido,email:u.email,
+    telefono:u.telefono,direccion:u.direccion,estado:u.estado,ultimo_acceso:u.ultimo_acceso,
+    creado_en:u.creado_en,actualizado_en:u.actualizado_en,
+  }, roles:accesos.roles,permisos:accesos.permisos,empresas,empresa:empresa ?? null };
 }
 
 export function verificarToken(token: string) {
-  return jwt.verify(token, env.JWT_SECRET);
+  return jwt.verify(token, env.JWT_SECRET, { algorithms: ['HS256'] });
 }

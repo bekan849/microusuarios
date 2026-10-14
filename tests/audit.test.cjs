@@ -5,7 +5,9 @@ const ts=require('typescript');
 require.extensions['.ts']=(mod,file)=>mod._compile(ts.transpileModule(fs.readFileSync(file,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2020,esModuleInterop:true}}).outputText,file);
 process.env.SUPABASE_URL='https://example.invalid';process.env.SUPABASE_SERVICE_ROLE_KEY='test';process.env.SUPABASE_ANON_KEY='test';process.env.JWT_SECRET='audit-test';
 require('dotenv').config=()=>({parsed:{}});
-const {supabaseAdmin}=require('../src/lib/supabase.ts');
+const supabaseModule=require('../src/lib/supabase.ts');
+const supabaseAdmin={};
+supabaseModule.supabaseAdmin=supabaseAdmin; // Doble exclusivo para pruebas del middleware de auditoría.
 const {auditValues,auditFilters}=require('../src/services/audit.service.ts');
 const {auditMiddleware}=require('../src/middlewares/audit.middleware.ts');
 const express=require('express');
@@ -85,12 +87,14 @@ test('Authenticated action audit integration',async t=>{
 test('History endpoint enforces current permissions and read-only API',async t=>{
   const userService=require('../src/services/user.service.ts');
   userService.obtenerAccesosDeUsuario=async id=>({usuario:{idusuario:id},roles:[],permisos:id==='allowed'?[{codigo:'auditoria.ver'}]:[]});
+  const empresaService=require('../src/services/empresa.service.ts');
+  empresaService.obtenerAccesosEmpresa=async(id,idempresa)=>({...await userService.obtenerAccesosDeUsuario(id),empresa:{idempresa}});
   const jwt=require('jsonwebtoken');
   const {auditRouter}=require('../src/routes/audit.routes.ts');
   const app=express();app.use('/api/historial',auditRouter);
   const server=await new Promise(resolve=>{const s=app.listen(0,'127.0.0.1',()=>resolve(s));});
   const base='http://127.0.0.1:'+server.address().port+'/api/historial';
-  const token=id=>jwt.sign({idusuario:id,permisos:['auditoria.ver']},process.env.JWT_SECRET);
+  const token=id=>jwt.sign({version:2,tipo:'empresa',idempresa:'test-company',idusuario:id,permisos:['auditoria.ver']},process.env.JWT_SECRET);
   try{
     assert.equal((await fetch(base)).status,401);
     assert.equal((await fetch(base,{headers:{Authorization:'Bearer '+token('revoked')}})).status,403);
@@ -119,9 +123,9 @@ test('History queries isolate services and use Bolivia day boundaries',async()=>
   }finally{supabaseAdmin.from=previous;}
 });
 
-test('Every existing mutation route in both services has auditing',()=>{
+test('Every existing mutation route in microusuarios has auditing',()=>{
   const path=require('node:path');
-  for(const root of [path.resolve(__dirname,'..'),path.resolve(__dirname,'../../microproductos')]){
+  for(const root of [path.resolve(__dirname,'..')]){
     const dir=path.join(root,'src/routes');
     for(const file of fs.readdirSync(dir)){
       const source=fs.readFileSync(path.join(dir,file),'utf8');

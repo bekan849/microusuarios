@@ -1,7 +1,8 @@
 import { createClient } from "@supabase/supabase-js";
 import { env } from "../config/env";
+import { createEmpresaClient } from './empresa-client';
 
-export const supabaseAdmin = createClient(
+export const supabaseSystem = createClient(
   env.SUPABASE_URL,
   env.SUPABASE_SERVICE_ROLE_KEY,
   {
@@ -16,3 +17,5 @@ export const supabaseAuth = createClient(
     auth: { persistSession: false },
   }
 );
+
+export const supabaseAdmin = createEmpresaClient(supabaseSystem);

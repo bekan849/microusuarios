@@ -5,7 +5,11 @@
   "scripts": {
     "dev": "ts-node-dev --respawn src/server.ts",
     "build": "tsc",
-    "start": "node dist/server.js"
+    "start": "node dist/server.js",
+    "test": "node --test tests/auth-session.test.cjs tests/audit-sql.test.cjs tests/audit.test.cjs",
+    "test:presentation": "node --test tests/integration/audit-presentation.cjs",
+    "typecheck": "tsc --noEmit",
+    "test:multiempresa": "node --test tests/multiempresa-base.test.cjs tests/multiempresa-datos.test.cjs tests/multiempresa-api.test.cjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.98.0",
@@ -17,6 +21,7 @@
     "morgan": "^1.10.1"
   },
   "devDependencies": {
+    "@electric-sql/pglite": "0.5.8",
     "@types/cors": "^2.8.19",
     "@types/express": "^5.0.6",
     "@types/jsonwebtoken": "^9.0.10",

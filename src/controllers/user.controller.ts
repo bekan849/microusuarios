@@ -63,7 +63,7 @@ export async function patchUsuarioEstado(req: ReqWithId, res: Response) {
 export async function deleteUsuario(req: ReqWithId, res: Response) {
   try {
     await eliminarUsuario(req.params.id);
-    return res.json({ ok: true, message: "Usuario eliminado" });
+    return res.json({ ok: true, message: "Acceso a esta empresa suspendido" });
   } catch (err: any) {
     return res.status(400).json({ ok: false, message: err.message });
   }

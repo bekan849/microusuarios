@@ -1,68 +1,33 @@
-import { Request, Response, NextFunction, RequestHandler } from "express";
-import jwt from "jsonwebtoken";
-import { env } from "../config/env";
+import type { RequestHandler } from 'express';
+import jwt from 'jsonwebtoken';
+import { env } from '../config/env';
+import { empresaContext } from '../lib/empresa-context';
+import { obtenerAccesosEmpresa } from '../services/empresa.service';
 
-type TokenPayload = {
-  nombre?: string;
-  apellido?: string;
-  idusuario: string;
-  uidauth?: string;
-  email?: string;
-  roles?: string[];
-  permisos?: string[];
-};
-
-type AuthenticatedRequest = Request & {
-  user?: {
-    nombre?: string;
-    apellido?: string;
-    idusuario: string;
-    email?: string;
-    roles?: string[];
-    permisos?: string[];
-  };
-};
-
-export const decodeToken: RequestHandler = (
-  req: Request,
-  res: Response,
-  next: NextFunction
-) => {
+export const decodeIdentity: RequestHandler = (req,res,next) => {
   try {
-    const auth = req.headers.authorization;
+    const [scheme,token,...extra] = (req.headers.authorization ?? '').split(' ');
+    if (scheme !== 'Bearer' || !token || extra.length) throw new Error();
+    const decoded = jwt.verify(token,env.JWT_SECRET,{ algorithms:['HS256'] });
+    if (typeof decoded === 'string' || decoded.version !== 2 || typeof decoded.idusuario !== 'string' ||
+        !['empresa','seleccion_empresa'].includes(decoded.tipo) ||
+        (decoded.tipo === 'empresa' && typeof decoded.idempresa !== 'string')) throw new Error();
+    req.user = { idusuario:decoded.idusuario,idempresa:decoded.idempresa,tipo:decoded.tipo,
+      email:decoded.email,nombre:decoded.nombre,apellido:decoded.apellido,roles:[],permisos:[] };
+    next();
+  } catch { res.status(401).json({ok:false,message:'Inicia sesión nuevamente'}); }
+};
 
-    if (!auth) {
-      return res.status(401).json({
-        ok: false,
-        message: "Sin token",
-      });
+export const decodeToken: RequestHandler = (req,res,next) => {
+  decodeIdentity(req,res,async () => {
+    if (req.user?.tipo !== 'empresa' || !req.user.idempresa) {
+      res.status(403).json({ok:false,message:'Selecciona una empresa para continuar'}); return;
     }
-
-    const [scheme, token] = auth.split(" ");
-
-    if (scheme !== "Bearer" || !token) {
-      return res.status(401).json({
-        ok: false,
-        message: "Formato de token inválido",
-      });
-    }
-
-    const decoded = jwt.verify(token, env.JWT_SECRET) as TokenPayload;
-
-    (req as AuthenticatedRequest).user = {
-      nombre: typeof decoded.nombre === "string" ? decoded.nombre : undefined,
-      apellido: typeof decoded.apellido === "string" ? decoded.apellido : undefined,
-      idusuario: decoded.idusuario,
-      email: decoded.email,
-      roles: decoded.roles ?? [],
-      permisos: decoded.permisos ?? [],
-    };
-
-    return next();
-  } catch (err) {
-    return res.status(401).json({
-      ok: false,
-      message: "Token inválido o expirado",
-    });
-  }
+    try {
+      const access = await obtenerAccesosEmpresa(req.user.idusuario,req.user.idempresa);
+      req.user.roles=access.roles.map(r=>r.nombre);
+      req.user.permisos=access.permisos.map(p=>p.codigo);
+      empresaContext.run({idempresa:req.user.idempresa,idusuario:req.user.idusuario,permisos:req.user.permisos},next);
+    } catch { res.status(403).json({ok:false,message:'No tienes acceso vigente a esta empresa'}); }
+  });
 };

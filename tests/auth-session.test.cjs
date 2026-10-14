@@ -2,7 +2,7 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const { PGlite } = require(process.env.PGLITE_MODULE || '@electric-sql/pglite');
+const { PGlite } = require('@electric-sql/pglite');
 
 test('Sesión consolidada conserva roles, permisos y estado del usuario', async t => {
   const db = new PGlite();

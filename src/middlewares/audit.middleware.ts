@@ -12,7 +12,7 @@ export function auditMiddleware(service: "usuarios" | "productos"): RequestHandl
     const params = req.params as Record<string, string>;
     let recordId: string | null = params.iddetalle ?? params.id ?? params.idusuariorol ?? null;
     if (detail && !params.iddetalle) recordId = null;
-    const action = module === "auth" ? (segments[2] === "login" ? "iniciar_sesion" : "cerrar_sesion")
+    const action = module === "auth" ? (segments[2] === "logout" ? "cerrar_sesion" : "iniciar_sesion")
       : segments.includes("password") ? "cambiar_password" : segments.includes("estado") ? "cambiar_estado"
       : segments.includes("registrar-completa") ? "registrar_completa"
       : req.method === "POST" ? "crear" : req.method === "DELETE" ? "eliminar" : "editar";

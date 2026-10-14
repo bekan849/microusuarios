@@ -1,5 +1,6 @@
-import { supabaseAdmin } from "../lib/supabase";
-import { faltaFuncionRpc } from "../utils/rpc";
+import { supabaseAdmin, supabaseSystem } from "../lib/supabase";
+import { requireEmpresaContext } from '../lib/empresa-context';
+import { obtenerAccesosEmpresa } from './empresa.service';
 
 export type UsuarioCreate = {
   uidauth?: string;
@@ -41,6 +42,12 @@ function parseUniqueError(msg: string) {
   return msg;
 }
 
+function usuarioDeEmpresa(usuario: any) {
+  const { __empresa, ...datos } = usuario;
+  const membresia = Array.isArray(__empresa) ? __empresa[0] : __empresa;
+  return { ...datos, estado: datos.estado === 'ACTIVO' && membresia?.activa === false ? 'INACTIVO' : datos.estado };
+}
+
 export async function listarUsuarios(query: UsuarioListQuery) {
   const page = Math.max(1, Number(query.page ?? 1));
   const limit = Math.min(Math.max(Number(query.limit ?? 20), 1), 100);
@@ -53,7 +60,9 @@ export async function listarUsuarios(query: UsuarioListQuery) {
     .range(from, to)
     .order("creado_en", { ascending: false });
 
-  if (query.estado) q = q.eq("estado", query.estado);
+  if (query.estado === 'ACTIVO') q = q.eq('estado','ACTIVO').eq('__empresa.activa',true);
+  else if (query.estado === 'INACTIVO') q = q.eq('__empresa.activa',false);
+  else if (query.estado === 'BLOQUEADO') q = q.eq('estado','BLOQUEADO');
 
   if (query.q) {
     const term = query.q.trim();
@@ -70,7 +79,7 @@ export async function listarUsuarios(query: UsuarioListQuery) {
     page,
     limit,
     total: count ?? 0,
-    data: data ?? [],
+    data: (data ?? []).map(usuarioDeEmpresa),
   };
 }
 
@@ -83,7 +92,7 @@ export async function obtenerUsuario(idusuario: string) {
 
   if (error) throw new Error("Usuario no encontrado");
 
-  return data;
+  return usuarioDeEmpresa(data);
 }
 
 export async function crearUsuario(payload: UsuarioCreate) {
@@ -102,7 +111,7 @@ export async function crearUsuario(payload: UsuarioCreate) {
   }
 
   const { data: authCreated, error: authError } =
-    await supabaseAdmin.auth.admin.createUser({
+    await supabaseSystem.auth.admin.createUser({
       email,
       password,
       email_confirm: true,
@@ -116,23 +125,13 @@ export async function crearUsuario(payload: UsuarioCreate) {
 
   const uid = authCreated.user.id;
 
-  const { data, error } = await supabaseAdmin
-    .from("usuarios")
-    .insert([
-      {
-        uidauth: uid,
-        nombre,
-        apellido,
-        email,
-        telefono,
-        direccion,
-      },
-    ])
-    .select("*")
-    .single();
+  const { data, error } = await supabaseSystem.rpc('registrar_usuario_empresa', {
+    p_idempresa: requireEmpresaContext().idempresa, p_actor: requireEmpresaContext().idusuario,
+    p_usuario: { uidauth: uid, nombre, apellido, email, telefono, direccion },
+  });
 
   if (error) {
-    await supabaseAdmin.auth.admin.deleteUser(uid);
+    await supabaseSystem.auth.admin.deleteUser(uid);
     throw new Error(parseUniqueError(error.message));
   }
 
@@ -140,19 +139,7 @@ export async function crearUsuario(payload: UsuarioCreate) {
 }
 
 export async function obtenerAccesosDeUsuario(idusuario: string) {
-  if (!idusuario) throw new Error("Falta idusuario");
-
-  const { data, error } = await supabaseAdmin.rpc("obtener_accesos_usuario", {
-    p_idusuario: idusuario,
-  });
-  if (!error) {
-    if (!data?.usuario || !Array.isArray(data.roles) || !Array.isArray(data.permisos)) {
-      throw new Error("Respuesta de sesión inválida");
-    }
-    return data as AccesosUsuario;
-  }
-  if (!faltaFuncionRpc(error)) throw new Error(error.message);
-  return obtenerAccesosCompatibles(idusuario);
+  return obtenerAccesosEmpresa(idusuario,requireEmpresaContext().idempresa);
 }
 
 export type AccesosUsuario = {
@@ -164,105 +151,12 @@ export type AccesosUsuario = {
   }>;
 };
 
-/** Compatibilidad temporal mientras se instala la migración de sesión. */
-export async function obtenerAccesosCompatibles(
-  idusuario: string,
-  usuarioExistente?: any
-): Promise<AccesosUsuario> {
-  const usuario = usuarioExistente ?? await obtenerUsuario(idusuario);
-
-  if (usuario.estado !== "ACTIVO") {
-    throw new Error("Usuario no activo");
-  }
-
-  const { data: rolesData, error: rolesError } = await supabaseAdmin
-    .from("usuario_rol")
-    .select(`
-      idusuariorol,
-      idusuario,
-      idrol,
-      estado,
-      roles:roles (
-        idrol,
-        nombre,
-        descripcion,
-        estado
-      )
-    `)
-    .eq("idusuario", idusuario)
-    .eq("estado", true);
-
-  if (rolesError) throw new Error(rolesError.message);
-
-  const rolesMap = new Map<string, any>();
-
-  for (const row of rolesData ?? []) {
-    const rol = (row as any).roles;
-
-    if (!rol || rol.estado !== true) continue;
-
-    rolesMap.set(rol.idrol, {
-      idrol: rol.idrol,
-      nombre: String(rol.nombre ?? "").trim(),
-      descripcion: rol.descripcion ?? null,
-    });
-  }
-
-  const rolesActivos = Array.from(rolesMap.values());
-  const roleIds = rolesActivos.map((rol) => rol.idrol).filter(Boolean);
-
-  let permisosActivos: any[] = [];
-
-  if (roleIds.length > 0) {
-    const { data: permisosData, error: permisosError } = await supabaseAdmin
-      .from("rol_permiso")
-      .select(`
-        idrol,
-        idpermiso,
-        permisos:permisos (
-          idpermiso,
-          codigo,
-          nombre,
-          modulo,
-          descripcion,
-          estado
-        )
-      `)
-      .in("idrol", roleIds);
-
-    if (permisosError) throw new Error(permisosError.message);
-
-    const permisosMap = new Map<string, any>();
-
-    for (const row of permisosData ?? []) {
-      const permiso = (row as any).permisos;
-
-      if (!permiso || permiso.estado !== true) continue;
-
-      permisosMap.set(permiso.idpermiso, {
-        idpermiso: permiso.idpermiso,
-        codigo: String(permiso.codigo ?? "").trim().toLowerCase(),
-        nombre: permiso.nombre,
-        modulo: permiso.modulo,
-        descripcion: permiso.descripcion ?? null,
-      });
-    }
-
-    permisosActivos = Array.from(permisosMap.values());
-  }
-
-  return {
-    usuario,
-    roles: rolesActivos,
-    permisos: permisosActivos,
-  };
-}
-
 export async function actualizarUsuario(
   idusuario: string,
   payload: UsuarioUpdate
 ) {
   const actual = await obtenerUsuario(idusuario);
+  await autorizarCambioIdentidad(idusuario);
 
   const update: any = {};
 
@@ -292,7 +186,7 @@ export async function actualizarUsuario(
       }
 
       const { error: authError } =
-        await supabaseAdmin.auth.admin.updateUserById(actual.uidauth, {
+        await supabaseSystem.auth.admin.updateUserById(actual.uidauth, {
           email: newEmail,
         });
 
@@ -308,7 +202,7 @@ export async function actualizarUsuario(
     throw new Error("No hay datos para actualizar");
   }
 
-  const { data, error } = await supabaseAdmin
+  const { data, error } = await supabaseSystem
     .from("usuarios")
     .update(update)
     .eq("idusuario", idusuario)
@@ -324,41 +218,24 @@ export async function cambiarEstadoUsuario(
   idusuario: string,
   estado: "ACTIVO" | "INACTIVO" | "BLOQUEADO"
 ) {
-  const { data, error } = await supabaseAdmin
-    .from("usuarios")
-    .update({ estado })
-    .eq("idusuario", idusuario)
-    .select("*")
-    .single();
-
+  if (!['ACTIVO','INACTIVO','BLOQUEADO'].includes(estado)) throw new Error('Estado inválido');
+  await obtenerUsuario(idusuario);
+  const { error } = await supabaseSystem.from('empresa_usuario').update({activa:estado === 'ACTIVO'})
+    .eq('idempresa',requireEmpresaContext().idempresa).eq('idusuario',idusuario);
   if (error) throw new Error(error.message);
-
-  return data;
+  return obtenerUsuario(idusuario);
 }
 
 export async function eliminarUsuario(idusuario: string) {
-  const actual = await obtenerUsuario(idusuario);
+  await cambiarEstadoUsuario(idusuario,'INACTIVO');
+  return {ok:true}; // Quitar acceso a esta tienda conserva identidad e historial.
+}
 
-  if (actual.uidauth) {
-    const { error: authError } = await supabaseAdmin.auth.admin.deleteUser(
-      actual.uidauth
-    );
-
-    if (authError) {
-      throw new Error(
-        `No se pudo eliminar el usuario de Auth: ${authError.message}`
-      );
-    }
-  }
-
-  const { error } = await supabaseAdmin
-    .from("usuarios")
-    .delete()
-    .eq("idusuario", idusuario);
-
-  if (error) throw new Error(error.message);
-
-  return { ok: true };
+async function autorizarCambioIdentidad(idusuario: string) {
+  const context=requireEmpresaContext();
+  if (idusuario===context.idusuario) return;
+  const {count,error}=await supabaseSystem.from('empresa_usuario').select('idusuario',{count:'exact',head:true}).eq('idusuario',idusuario);
+  if(error || count!==1) throw new Error('La cuenta pertenece a varias empresas; su titular debe modificar sus datos personales');
 }
 
 export async function cambiarPasswordUsuario(
@@ -366,6 +243,7 @@ export async function cambiarPasswordUsuario(
   password: string
 ) {
   const actual = await obtenerUsuario(idusuario);
+  await autorizarCambioIdentidad(idusuario);
 
   const newPassword = String(password ?? "").trim();
 
@@ -377,7 +255,7 @@ export async function cambiarPasswordUsuario(
     throw new Error("El usuario no tiene uidauth para cambiar contraseña");
   }
 
-  const { error } = await supabaseAdmin.auth.admin.updateUserById(
+  const { error } = await supabaseSystem.auth.admin.updateUserById(
     actual.uidauth,
     { password: newPassword }
   );
