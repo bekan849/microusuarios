@@ -41,7 +41,7 @@ export function auditMiddleware(service: "usuarios" | "productos"): RequestHandl
           ? await auditSnapshot(resource, recordId, req.body) : { values: null, available: true };
         // A DELETE can mean either a soft deletion (row still exists) or a physical deletion.
         // Never use a DELETE response as an after-image: many controllers return the removed row.
-        const afterValues = after.available ? after.values : success && action !== "eliminar" && module !== "auth" ? auditValues(data) : null;
+        const afterValues = after.available ? after.values : success && action !== "eliminar" && module !== "auth" && resource !== 'calendario' ? auditValues(data) : null;
         const comparison = module === "auth" || action === "cambiar_password" ? "no_aplica"
           : !success ? "error" : "registro";
         const saved = await appendAudit({

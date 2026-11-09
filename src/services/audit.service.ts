@@ -1,4 +1,5 @@
 import { supabaseAdmin } from "../lib/supabase";
+import { requireEmpresaContext } from '../lib/empresa-context';
 
 // Explicit business-field allowlist. Never persist request headers or raw bodies.
 const fields = new Set("idusuario nombre apellido email estado idrol idpermiso codigo modulo idusuariorol idrolpermiso idproducto idcategoria idmarca idproveedor idcompra idventa iddetallecompra iddetalleventa cantidad stock stockminimo stockrestante precioventa preciomayor preciocosto precio total subtotal fechaventa fechaingreso codigoprod descripcion telefono direccion urlimagen nit".split(" "));
@@ -16,6 +17,7 @@ export function auditValues(value: unknown, depth = 0): unknown {
 }
 
 export const auditTables: Record<string, [string, string]> = {
+  calendario: ['calendario_eventos', 'id'],
   usuarios: ["usuarios", "idusuario"], roles: ["roles", "idrol"], permisos: ["permisos", "idpermiso"],
   "usuario-rol": ["usuario_rol", "idusuariorol"], "rol-permiso": ["rol_permiso", "idrolpermiso"],
   productos: ["productos", "idproducto"], categorias: ["categorias", "idcategoria"],
@@ -28,7 +30,9 @@ export async function auditSnapshot(resource: string, id: string | null, body: a
   const table = auditTables[resource];
   if (!table) return { values: null, available: false };
   try {
-    let query = supabaseAdmin.from(table[0]).select("*");
+    // Personal calendar text is not copied into the shared administrative history.
+    let query = supabaseAdmin.from(table[0]).select(resource === 'calendario' ? 'idusuario' : '*');
+    if (resource === 'calendario') query = query.eq('idusuario', requireEmpresaContext().idusuario);
     if (id) query = query.eq(table[1], id);
     else if (resource === "usuario-rol" && body?.idusuario && body?.idrol)
       query = query.eq("idusuario", body.idusuario).eq("idrol", body.idrol);

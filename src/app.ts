@@ -1,4 +1,5 @@
 import { auditRouter } from "./routes/audit.routes";
+import { calendarRouter } from "./routes/calendar.routes";
 import express from "express";
 import cors from "cors";
 import helmet from "helmet";
@@ -60,5 +61,6 @@ app.use("/api/usuario-rol", userRoleRouter);
 
 /* middlewares */
 app.use("/api/historial", auditRouter);
+app.use("/api/calendario", calendarRouter);
 app.use(notFound);
 app.use(errorMiddleware);

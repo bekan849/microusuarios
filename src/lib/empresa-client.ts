@@ -3,7 +3,7 @@ import { empresaContext, requireEmpresaContext } from './empresa-context';
 
 const scopedTables = new Set(['categorias','marcas','proveedor','productos','productos_list_view',
   'compra','detalle_compra','venta','detalle_venta','detalle_venta_lote',
-  'roles','usuario_rol','rol_permiso','historial_acciones','v_usuario_permisos']);
+  'roles','usuario_rol','rol_permiso','historial_acciones','v_usuario_permisos','calendario_eventos']);
 const rpcNames: Record<string,string> = {
   registrar_venta_completa_atomica: 'registrar_venta_empresa',
   dashboard_inicial: 'dashboard_empresa',
